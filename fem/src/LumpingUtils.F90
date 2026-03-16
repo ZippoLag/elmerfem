@@ -2332,9 +2332,9 @@ MODULE LumpingUtils
       ! This has already been defined!
       IF( ListCheckPresent( BC,'Port Type Index')) CYCLE
 
-      IF(.NOT. ListCheckPresent(BC,'port impedance')) CYCLE
-      
       PortType = ListGetString( BC,'port type',Found)
+
+      IF(.NOT. (Found .OR. ListCheckPresent(BC,'port impedance'))) CYCLE            
 
       SELECT CASE(PortType)
       CASE('rectangular')
@@ -2342,6 +2342,9 @@ MODULE LumpingUtils
 
       CASE('coaxial')
         PortTypeInd = 2
+
+      CASE('eigenmode')
+        PortTypeInd = 3
 
       CASE DEFAULT
         CALL Info(Caller,'Port Type "Port Type" defaulted to "rectangular"',Level=4)

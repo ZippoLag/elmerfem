@@ -196,7 +196,7 @@ SUBROUTINE VectorHelmholtzSolver_Init(Model,Solver,dt,Transient)
   LOGICAL :: Transient
 !------------------------------------------------------------------------------
   TYPE(ValueList_t), POINTER :: SolverParams
-  LOGICAL :: Found
+  LOGICAL :: Found, FindEigen
   INTEGER :: i, j, soln
   CHARACTER(LEN=MAX_NAME_LEN) :: sname
 !------------------------------------------------------------------------------
@@ -211,7 +211,15 @@ SUBROUTINE VectorHelmholtzSolver_Init(Model,Solver,dt,Transient)
   !
   ! The following is for creating sources from pre-computed eigenfunctions:
   !
-  IF (ListGetLogicalAnyBC(Model, 'Eigenfunction BC')) THEN
+  FindEigen = (ListGetLogicalAnyBC(Model, 'Eigenfunction BC'))
+  DO i=1,Model % NumberOfBCs
+    IF( ListGetString( Model % BCs(i) % Values,'Port Type', Found ) == 'eigenmode' ) THEN
+      FindEigen = .TRUE.
+      EXIT
+    END IF
+  END DO
+
+  IF ( FindEigen ) THEN
     soln = 0
     DO i=1,Model % NumberOfSolvers
       sname = GetString(Model % Solvers(i) % Values, 'Procedure', Found)
@@ -229,6 +237,7 @@ SUBROUTINE VectorHelmholtzSolver_Init(Model,Solver,dt,Transient)
       CALL ListAddInteger(SolverParams, 'Eigensolver Index', soln)
     END IF
   END IF
+  
 !------------------------------------------------------------------------------
 END SUBROUTINE VectorHelmholtzSolver_Init
 !------------------------------------------------------------------------------
@@ -342,14 +351,10 @@ SUBROUTINE VectorHelmholtzSolver( Model,Solver,dt,Transient )
   UseGaussLaw = GetLogical(SolverParams, 'Use Gauss Law', Found)
   ChargeConservation = GetLogical(SolverParams, 'Apply Conservation of Charge', Found)
 
-  EigenfunctionSource = ListGetLogicalAnyBC(Model, 'Eigenfunction BC')
-  IF (EigenfunctionSource) THEN
-    soln = ListGetInteger(SolverParams, 'Eigensolver Index', Found) 
-    IF (soln == 0) THEN
-      CALL Fatal(Caller, 'We should know > Eigensolver Index <')
-    END IF
-    Eigensolver => Model % Solvers(soln)
-  END IF
+  ! If we have eigenfunction BC's then this has been set.
+  soln = ListGetInteger(SolverParams, 'Eigensolver Index', Found)     
+  EigenfunctionSource = (soln > 0)
+  IF(soln > 0) Eigensolver => Model % Solvers(soln)
   
   
   ! Resolve internal nonlinearities, if requested:
@@ -879,7 +884,8 @@ CONTAINS
     LOGICAL :: InitHandles
 !------------------------------------------------------------------------------
     COMPLEX(KIND=dp), ALLOCATABLE :: STIFF(:,:), MASS(:,:), FORCE(:)
-    COMPLEX(KIND=dp) :: ElSurfCurr(3), B, L(3), muinv, TemGrad(3), MagLoad(3), BetaPar, jn, Cond, SurfImp, epsr, mur, ep
+    COMPLEX(KIND=dp) :: ElSurfCurr(3), B, L(3), muinv, TemGrad(3), MagLoad(3), BetaPar, &
+        PortBeta, jn, Cond, SurfImp, epsr, mur, ep
     REAL(KIND=dp), ALLOCATABLE :: Basis(:),dBasisdx(:,:),WBasis(:,:),RotWBasis(:,:)
     REAL(KIND=dp), ALLOCATABLE :: Re_Eigenf(:), Im_Eigenf(:)
     REAL(KIND=dp) :: th, DetJ
@@ -896,11 +902,12 @@ CONTAINS
     TYPE(ValueHandle_t), SAVE :: Thickness_h, RelNu_h, CondCoeff_h
     TYPE(ValueHandle_t), SAVE :: GoodConductor_h, ChargeConservation_h, EigenSource_h, EigenInd_h, EigenWave_h
 
-    TYPE(ValueHandle_t), SAVE :: PortTypeIndex_h, PortZ_h, PortLength_h, PortScale_h, PortDirection_h, PortCenter_h
+    TYPE(ValueHandle_t), SAVE :: PortTypeIndex_h, PortZ_h, PortLength_h, PortScale_h, PortDirection_h, &
+        PortCenter_h, PortBeta_h, PortPassive_h
     INTEGER :: PortTypeIndex, PortDirection
     COMPLEX(KIND=dp) :: PortZ
     REAL(KIND=dp) :: PortLength, PortScale, PortCenter(3)
-    LOGICAL :: GotPort
+    LOGICAL :: GotPort, PortPassive
 
     
     SAVE AllocationsDone, WBasis, RotWBasis, Basis, dBasisdx, FORCE, STIFF, MASS, Re_Eigenf, Im_Eigenf
@@ -950,6 +957,8 @@ CONTAINS
       CALL ListInitElementKeyword( PortScale_h,'Boundary Condition','Port Scale')
       CALL ListInitElementKeyword( PortDirection_h,'Boundary Condition','Port Direction',DefIValue=3)
       CALL ListInitElementKeyword( PortCenter_h,'Boundary Condition','Port Center',InitVec3D=.TRUE.)
+      CALL ListInitElementKeyword( PortBeta_h,'Boundary Condition','Port Beta',InitIm=.TRUE.) 
+      CALL ListInitElementKeyword( PortPassive_h,'Boundary Condition','Port Passive')
       
       InitHandles = .FALSE.
     END IF
@@ -972,11 +981,10 @@ CONTAINS
     Absorb = ListGetElementLogical(Absorb_h, Element, Found)
     PortTypeIndex = ListGetElementInteger(PortTypeIndex_h, Element, GotPort)
     
-    IF (EigenSource) THEN
-      EigenInd = ListGetElementInteger(EigenInd_h, Element, Found)
-      IF (EigenInd < 1) CALL Fatal(Caller, 'Eigenfunction Index must be positive')
+    IF (EigenSource .OR. PortTypeIndex == 3 ) THEN
+      EigenInd = MAX(1,ListGetElementInteger(EigenInd_h, Element, Found))
       EigenWave = ListGetElementLogical(EigenWave_h, Element, Found)
-
+      
       CALL GetScalarLocalEigenmode(Re_Eigenf, ComponentName(Eigensolver % Variable, 1), Element, &
           Eigensolver, EigenInd, ComplexPart=.FALSE.)
       CALL GetScalarLocalEigenmode(Im_Eigenf, ComponentName(Eigensolver % Variable, 2), Element, &
@@ -998,10 +1006,16 @@ CONTAINS
       PortZ = ListGetElementComplex( PortZ_h, Element = Element )     
       PortScale = ListGetElementReal( PortScale_h, Element = Element )
       PortLength = ListGetElementReal( PortLength_h, Element = Element )
-      IF( PortTypeIndex == 1 ) THEN
+      PortPassive = ListGetElementLogical( PortPassive_h, Element = Element )
+      IF( PortTypeIndex == 1 ) THEN       ! rectangular
         PortDirection = ListGetElementInteger( PortDirection_h, Element )
-      ELSE
+      ELSE IF( PortTypeIndex == 2 ) THEN  ! coaxial
         PortCenter = ListGetElementReal( PortCenter_h, Element = Element )
+        CALL Fatal(Caller,'Unfinished port type: '//I2S(PortTypeIndex))        
+      ELSE IF( PortTypeIndex == 3 ) THEN  ! eigenmode
+        PortBeta = ListGetElementReal( PortBeta_h, Element = Element )
+      ELSE
+        CALL Fatal(Caller,'Uncoded port type: '//I2S(PortTypeIndex))        
       END IF
       !PRINT *,'PortScale:',PortScale, PortZ, PortLength, PortTypeIndex, PortDirection
     END IF
@@ -1110,8 +1124,14 @@ CONTAINS
         IF( PortTypeIndex == 1 ) THEN
           B = im * ( omega / mu0inv ) / (PortScale * PortZ ) 
           L(ABS(PortDirection)) = SIGN(1,PortDirection) / ( PortLength * SQRT(PortScale) )
+        ELSE IF( PortTypeIndex == 3 ) THEN
+          B = im * PortBeta
+          DO p=1,nd
+            L(:) = L(:) + CMPLX(Re_Eigenf(n+p) * WBasis(p,:), Im_Eigenf(n+p) * WBasis(p,:), kind=dp) 
+          END DO
         END IF
-        L = 2 * B * L
+        L = 2.0_dp * B * L
+        IF( PortPassive) L = 0.0_dp
       ELSE
         B = ListGetElementComplex( ElRobin_h, Basis, Element, Found, GaussPoint = t )
 
