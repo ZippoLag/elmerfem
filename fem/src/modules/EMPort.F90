@@ -278,7 +278,8 @@ SUBROUTINE EMPortSolver(Model, Solver, dt, Transient)
     Beta = SQRT(-Solver % Variable % EigenValues(ModeIndex))
     WRITE(Message,'(A,2ES12.3)') 'Propagation constant beta: ',REAL(Beta),AIMAG(Beta)
     CALL Info(Caller,Message,Level=5)      
-
+    CALL ListAddConstReal( Model % Simulation,'res: Port Beta '//I2S(PortInd),REAL(Beta))
+    
     ! Use the sum or propagation constant as a reference value for consistency
     BetaSum = BetaSum + REAL(Beta)
     
