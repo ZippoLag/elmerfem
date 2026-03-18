@@ -153,10 +153,10 @@ End
 
 Boundary Condition 1
   Target Boundaries(6) = 1 2 3 4 5 6
-  E re = Real 0
-  E im = Real 0
-  E re {e} = Real 0.0
-  E im {e} = Real 0.0
+  Eport re = Real 0
+  Eport im = Real 0
+  Eport re {e} = Real 0.0
+  Eport im {e} = Real 0.0
 End
 
 Solver 1 :: Reference Norm = 3.82726670E+00

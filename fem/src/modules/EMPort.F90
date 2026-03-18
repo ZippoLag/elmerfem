@@ -87,20 +87,22 @@ SUBROUTINE EMPortSolver_Init0(Model, Solver, dt, Transient)
     END IF
   END IF
 
-  CALL ListAddNewString(Params, 'Variable', 'E[E re:1 E im:1]')
+  CALL ListAddNewString(Params, 'Variable', 'Eport[Eport re:1 Eport im:1]')
   CALL ListAddLogical(Params, 'Linear System refactorize', .TRUE.)
 
   ! Skip change computation since we want to store the Norm and there is
   ! nothing really changing.
   CALL ListAddNewLogical( Params,'Skip Compute Nonlinear Change',.TRUE.)
   CALL ListAddNewLogical( Params,'Skip Compute Steady State Change',.TRUE.)
+  CALL ListAddNewLogical( Params,'Variable Output',.FALSE.)
   CALL ListAddNewLogical( Params,'post: Skip Compute Nonlinear Change',.TRUE.)
   CALL ListAddNewLogical( Params,'post: Linear System Complex',.FALSE.)
+  CALL ListAddNewLogical( Params,'post: Variable Output',.FALSE.)
 
-  IF( .NOT. ListCheckPresent(Params, 'Mode Index') ) THEN
-    CALL Info('EMPortSolver','Setting default sorting for eigenmodes such that 1st eigenmode is default')
-    CALL ListAddNewString( Params,'post: Eigen System Sorting','smallest real part')
-  END IF
+  CALL Info('EMPortSolver','Setting default sorting and normalization for eigenmodes!')
+  CALL ListAddNewString( Params,'Eigen System Sorting','smallest real part')
+  CALL ListAddNewLogical( Params,'Eigen System Normalize To Unity',.TRUE.)
+  CALL ListAddNewLogical( Params,'Eigen System Shift Automatic',.TRUE.)
   
 !-----------------------------------------------------------------------------
 END SUBROUTINE EMPortSolver_Init0
@@ -125,7 +127,7 @@ SUBROUTINE EMPortSolver(Model, Solver, dt, Transient)
   TYPE(Mesh_t), POINTER :: Mesh
   TYPE(ValueList_t), POINTER :: Params, BC
   TYPE(Element_t), POINTER :: Element
-  LOGICAL :: PiolaVersion, EigenProblem, InitHandles, Found
+  LOGICAL :: PiolaVersion, EigenProblem, InitHandles, CalculateNodal, Found
   INTEGER :: DOFs, EdgeBasisDegree, Active, i, j, k, t, m, n, nd, &
       EFamily, NoPorts, MaxPort, PortInd, t1, t2, ModeIndex
   COMPLEX(KIND=dp), PARAMETER :: im = (0._dp,1._dp)
@@ -144,6 +146,10 @@ SUBROUTINE EMPortSolver(Model, Solver, dt, Transient)
   CALL Info(Caller,'Solving electromagnetic port equations over a surface')
   CALL Info(Caller,'------------------------------------------------',Level=6)
 
+  SolverPtr => Solver  
+  Mesh => GetMesh()
+  Params => GetSolverParams()
+
   IF ( CurrentCoordinateSystem() /= Cartesian ) THEN 
     CALL Fatal(Caller,'Implemented only for Cartesian problems!')
   END IF
@@ -151,7 +157,14 @@ SUBROUTINE EMPortSolver(Model, Solver, dt, Transient)
   MaxPort = 0
   BetaSum = 0.0_dp
   DO i = 1,Model % NumberOfBCs
-    j = ListgetInteger( Model % BCs(i) % Values,"Port Index", Found )
+    BC => Model % BCs(i) % Values
+    j = ListgetInteger( BC,"Port Index", Found )
+    IF(.NOT. Found ) THEN
+      IF(ListGetString( BC,'Port Type',Found) == 'eigenmode' ) THEN
+        j = ListgetInteger( BC,"Constraint Mode", Found )
+        IF(j>0) CALL ListAddInteger( BC,"Port Index", j)
+      END IF
+    END IF
     IF( j > 0 ) THEN
       ! We add the labels so that we can use the CreateMatrix to include several ports.
       CALL ListAddLogical( Model % BCs(i) % Values,"Port Label "//I2S(j),.TRUE.)
@@ -159,6 +172,8 @@ SUBROUTINE EMPortSolver(Model, Solver, dt, Transient)
     END IF
   END DO
 
+  CalculateNodal = LIstGetLogical( Params,'Calculate Nodal Field', Found )
+ 
   EMVar => Solver % Variable
   IF( MaxPort > 1) THEN
     CALL Info(Caller,'Creating separate matrices for each '//I2S(MaxPort)//' port!')
@@ -170,9 +185,9 @@ SUBROUTINE EMPortSolver(Model, Solver, dt, Transient)
     SavePerm = EMVar % Perm     
 
     ! Allocate a collector for the several BC's
-    n = SIZE(EMVar % Values)
-    m = SIZE(EMVar % EigenValues)
-    ALLOCATE(SaveEigenVectors(m,n))
+    n = SIZE(EMVar % EigenVectors,1)
+    m = SIZE(EMVar % EigenVectors,2)
+    ALLOCATE(SaveEigenVectors(n,m))
     SaveEigenVectors = 0.0_dp
   END IF
     
@@ -180,10 +195,6 @@ SUBROUTINE EMPortSolver(Model, Solver, dt, Transient)
   IF (DOFs /= 2) THEN
     CALL Fatal(Caller, 'Complex field, specify two DOFs instead of '//I2S(DOFs))
   END IF
-
-  SolverPtr => Solver  
-  Mesh => GetMesh()
-  Params => GetSolverParams()
 
   CALL EdgeElementStyle(Params, PiolaVersion, BasisDegree = EdgeBasisDegree )
   
@@ -281,11 +292,16 @@ SUBROUTINE EMPortSolver(Model, Solver, dt, Transient)
           CALL ListAddConstReal( BC,'Port Beta Im',AIMAG(Beta))
         END IF
       END IF
+      j = ListgetInteger( BC,"Port Beta Parent", Found )
+      IF(Found .AND. j==PortInd) THEN
+        CALL ListAddConstReal( BC,'Port Beta',REAL(Beta))
+        CALL ListAddConstReal( BC,'Port Beta Im',AIMAG(Beta))
+      END IF
     END DO
       
-    IF( LIstGetLogical( Params,'Calculate Nodal Field', Found ) ) THEN    
-      CALL EMPortPost(PortInd, MaxPort)
-    END IF
+   IF(CalculateNodal) THEN
+     CALL EMPortPost(PortInd, MaxPort)
+   END IF
 
     IF( MaxPort > 1 ) THEN
       CALL FreeMatrix(Solver % Matrix)      
@@ -498,10 +514,10 @@ CONTAINS
     COMPLEX(KIND=dp), PARAMETER :: im = (0._dp,1._dp)
     INTEGER, POINTER :: NodalPerm(:)
     TYPE(Solver_t), POINTER :: pSolver=>NULL(), PostSolver=>NULL()
-    INTEGER, ALLOCATABLE :: PermIndexes(:), ParentPort(:)
+    INTEGER, ALLOCATABLE :: PermIndexes(:)
     
     SAVE PostSolver, MASS, LFORCE, WBasis, CurlWBasis, Basis, dBasisdx, PermIndexes, &
-        Re_local_field, Im_local_field, dofs, EF, GForce, FSave, ParentPort
+        Re_local_field, Im_local_field, dofs, EF, GForce, FSave
     
     !------------------------------------------------------------------------------
 
@@ -535,13 +551,13 @@ CONTAINS
         1, MATRIX_CRS,.FALSE., eqname, NodalDofsOnly = .TRUE.)
     PostSolver % Matrix % Values = 0.0_dp
 
-    ! Temporal vector for solving one component at a time.    
+    ! Temporal vector for solving one nodal component at a time.    
     CALL VariableAddVector( Mesh % Variables,Mesh,PostSolver,&
         'EM2D tmp',1,Perm = NodalPerm, Output = .FALSE. )
     PostSolver % Variable => VariableGet( Mesh % Variables,'EM2D tmp')
     IF(.NOT. ASSOCIATED(PostSolver % Variable)) CALL Fatal(Caller,'Post solver field not found!')
 
-    ! Field including all the components. 
+    ! Field including all the nodal components. 
     CALL VariableAddVector( Mesh % Variables,Mesh,PostSolver,&
         'EF2D[EF2D Re:3 EF2D Im:3]',6,Perm = NodalPerm, Secondary = .TRUE., Output = .TRUE. )
     EF => VariableGet( Mesh % Variables,'EF2D')
@@ -554,14 +570,6 @@ CONTAINS
     PostSolver % Matrix % rhs = 0.0_dp
     GForce = 0.0_dp
 
-#if 0 
-    IF(MaxPort > 1) THEN
-! this is related to code that allows to scale the contributions. Not active currently. 
-      ALLOCATE(ParentPort(n))
-      ParentPort = 0
-    END IF
-#endif
-    
     ! Use the original communicator
     PostSolver % Matrix % Comm = Solver % Matrix % Comm
     
@@ -649,11 +657,6 @@ CONTAINS
             LForce(1:n,j), n, 1, PermIndexes(1:n), UElement=Element)
       END DO
 
-#if 0
-      IF(MaxPort > 1) THEN
-        ParentPort(PermIndexes(1:n)) = PortInd
-      END IF
-#endif
     END DO
 
     ! We will assembly until the last mode has been added.
@@ -677,36 +680,12 @@ CONTAINS
     END DO
     PostSolver % Variable % Norm = SQRT(TotNorm)
     
-#if 0 
-    IF(MaxPort > 1) THEN
-      DO i=1,MaxPort
-        TotNorm = 0.0_dp
-        DO j=1,Dofs
-          Norm = SUM(EF % Values(j::dofs)**2,ParentPort==i)
-          TotNorm = TotNorm + Norm
-        END DO
-        mult = 1.0_dp / SQRT(TotNorm)
-
-        PRINT *,'Normalizing port '//I2S(i)//' by:',mult
-        DO j=1,Dofs
-          WHERE(ParentPort==i)
-            EF % Values(j::dofs) = mult * EF % Values(j::dofs)            
-          END WHERE
-        END DO
-      END DO      
-    END IF
-#endif
-    
     PostSolver % Matrix % RHS => FSave
     TotNorm = SQRT(TotNorm)
     PostSolver % Variable % Norm = TotNorm
     
     PostSolver % Matrix % rhs => FSave
     DEALLOCATE(GForce)
-
-#if 0 
-    IF(ALLOCATED(ParentPort)) DEALLOCATE(ParentPort)
-#endif
     
   END SUBROUTINE EMPortPost
 

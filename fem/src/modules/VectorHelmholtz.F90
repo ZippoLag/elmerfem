@@ -984,14 +984,13 @@ CONTAINS
     IF (EigenSource .OR. PortTypeIndex == 3 ) THEN
       EigenInd = MAX(1,ListGetElementInteger(EigenInd_h, Element, Found))
       EigenWave = ListGetElementLogical(EigenWave_h, Element, Found)
+
+      CALL GetScalarLocalEigenmode(Re_eigenf, UElement = Element, &
+          USolver = EigenSolver, NoEigen = EigenInd, ComplexPart=.FALSE.)
+      CALL GetScalarLocalEigenmode(im_eigenf, UElement = Element, &
+          USolver = EigenSolver, NoEigen = EigenInd, ComplexPart=.TRUE.)
       
-      CALL GetScalarLocalEigenmode(Re_Eigenf, ComponentName(Eigensolver % Variable, 1), Element, &
-          Eigensolver, EigenInd, ComplexPart=.FALSE.)
-      CALL GetScalarLocalEigenmode(Im_Eigenf, ComponentName(Eigensolver % Variable, 2), Element, &
-          Eigensolver, EigenInd, ComplexPart=.FALSE.)
-      
-      nd_eigen = GetElementNOFDOFs(USolver=Eigensolver)
-      
+      nd_eigen = GetElementNOFDOFs(USolver=Eigensolver)      
       IF (WithNDOFs) THEN
         Consistent = (nd_eigen == nd)
       ELSE
@@ -1017,7 +1016,6 @@ CONTAINS
       ELSE
         CALL Fatal(Caller,'Uncoded port type: '//I2S(PortTypeIndex))        
       END IF
-      !PRINT *,'PortScale:',PortScale, PortZ, PortLength, PortTypeIndex, PortDirection
     END IF
       
     
@@ -1130,7 +1128,7 @@ CONTAINS
             L(:) = L(:) + CMPLX(Re_Eigenf(n+p) * WBasis(p,:), Im_Eigenf(n+p) * WBasis(p,:), kind=dp) 
           END DO
         END IF
-        L = 2.0_dp * B * L
+        L = 2.0_dp * B * L 
         IF( PortPassive) L = 0.0_dp
       ELSE
         B = ListGetElementComplex( ElRobin_h, Basis, Element, Found, GaussPoint = t )
