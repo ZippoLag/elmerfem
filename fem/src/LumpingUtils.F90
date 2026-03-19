@@ -2018,24 +2018,11 @@ MODULE LumpingUtils
       END IF
       
       ! If the source of the incident field is not in the plane of the port we have to use the parent!
-#define doparent 0
       IF( EdgeBasis ) THEN
-#if doparent
-        np = Parent % TYPE % NumberOfNodes
-        ParentIndexes => Parent % NodeIndexes
-        ParentNodes % x(1:np) = Mesh % Nodes % x(ParentIndexes(1:np))
-        ParentNodes % y(1:np) = Mesh % Nodes % y(ParentIndexes(1:np))
-        ParentNodes % z(1:np) = Mesh % Nodes % z(ParentIndexes(1:np))
-
-        nd = mGetElementDofs( EdgeIndexes, Uelement = Parent, USolver = avar % Solver ) 
-        np = COUNT(EdgeIndexes(1:nd) <= Mesh % NumberOfNodes)
-        pIndexes => EdgeIndexes
-#else
         nd = mGetElementDofs( EdgeIndexes, Uelement = Element, USolver = avar % Solver ) 
         np = COUNT(EdgeIndexes(1:nd) <= Mesh % NumberOfNodes)
         pIndexes => EdgeIndexes
 
-#endif        
         IP = GaussPoints(Element, EdgeBasis=.TRUE., PReferenceElement=PiolaVersion, &
             EdgeBasisDegree=EdgeBasisDegree)
       ELSE
@@ -2065,11 +2052,6 @@ MODULE LumpingUtils
           PortCenter = ListGetElementReal( PortCenter_h, Element = Element )
         END IF
       END IF     
-      
-#if doparent 
-      ! Normal is only needed if we integrate over parent element.
-      Normal = NormalVector(Element, ElementNodes, Check=.TRUE.)
-#endif
       
       ! Numerical integration:
       !-----------------------      
@@ -2118,18 +2100,9 @@ MODULE LumpingUtils
 
           
         IF( EdgeBasis ) THEN
-#if doparent
-          ! In order to get the normal component of the electric field we must operate on the
-          ! parent element. The surface element only has tangential components.                    
-          ! Note: the finding of parents does not work for piola/quadratic gauss points.
-          CALL FindParentUVW( Element, n, Parent, Parent % TYPE % NumberOfNodes, U, V, W, Basis ) 
-          stat = ElementInfo( Parent, ParentNodes, u, v, w, detJ, Basis, dBasisdx, &
-              EdgeBasis = Wbasis, RotBasis = RotWBasis, USolver = avar % Solver )
-#else          
           stat = ElementInfo( Element, ElementNodes, IP % U(t), IP % V(t), &
               IP % W(t), detJ, Basis, dBasisdx, &
               EdgeBasis = Wbasis, RotBasis = RotWBasis, USolver = avar % Solver )
-#endif
           e_ip(1:3) = CMPLX(MATMUL(e_local(1,np+1:nd),WBasis(1:nd-np,1:3)), MATMUL(e_local(2,np+1:nd),WBasis(1:nd-np,1:3)), KIND=dp)
         ELSE
           DO i=1,3
@@ -2138,14 +2111,7 @@ MODULE LumpingUtils
         END IF
         
         ! Integral over electric field: This gives the phase
-#if doparent
-        ! e_ip is actually by construction on the plane if we do not use parent elements
-        e_ip_norm = SUM(e_ip*Normal)
-        e_ip_tan = e_ip - e_ip_norm * Normal
-        int_el = int_el + weight * SUM(e_ip_tan * CONJG(L) )         
-#else
         int_el = int_el + weight * SUM(e_ip * CONJG(L) )         
-#endif
         
         ! Norm of electric field used for normalization
         int_norm = int_norm + weight * ABS( SUM( L * CONJG(L) ) ) 
