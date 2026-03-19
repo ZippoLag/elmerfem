@@ -308,7 +308,7 @@ SUBROUTINE EMPortSolver(Model, Solver, dt, Transient)
       CALL FreeMatrix(Solver % Matrix)      
 
       ! Copy only the values that were actually computed for this port
-      n = SIZE(EMVar % Values)
+      n = SIZE(EMVar % Perm)
       DO i=1,n
         IF(SavePerm(i) > 0 .AND. EMVar % Perm(i) > 0) THEN
           SaveEigenVectors(:,SavePerm(i)) = EMVar % EigenVectors(:,EMVar % Perm(i))

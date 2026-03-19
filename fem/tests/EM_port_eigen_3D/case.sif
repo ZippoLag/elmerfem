@@ -230,6 +230,6 @@ Boundary Condition 3
   Port Passive = Logical True
 End
 
-Solver 2 :: Reference Norm = 7.95263687E-02
-Solver 3 :: Reference Norm = 5.61406403E-07
+Solver 2 :: Reference Norm = 2.38014933E-01
+Solver 3 :: Reference Norm = 1.50653184E-06
 Solver 5 :: Reference Norm = 1.46479527E+01
