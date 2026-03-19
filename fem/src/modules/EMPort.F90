@@ -61,10 +61,11 @@ SUBROUTINE EMPortSolver_Init0(Model, Solver, dt, Transient)
   REAL(KIND=dp) :: dt
   LOGICAL :: Transient
 !------------------------------------------------------------------------------
-  CHARACTER(*), PARAMETER :: Caller = 'EMPortSolver_Init0'
-  TYPE(ValueList_t), POINTER :: Params
+  INTEGER :: i
+  TYPE(ValueList_t), POINTER :: Params, BC
   LOGICAL :: Found, PiolaVersion, SecondFamily, SecondOrder
-   
+  CHARACTER(*), PARAMETER :: Caller = 'EMPortSolver_Init0'
+  
   Params => GetSolverParams()
   
   CALL ListAddNewLogical(Params, 'Linear System Complex', .TRUE.)
@@ -87,6 +88,18 @@ SUBROUTINE EMPortSolver_Init0(Model, Solver, dt, Transient)
     END IF
   END IF
 
+  ! Set the port field to zero at BCs which are defined as port ground
+  DO i = 1,Model % NumberOfBCs
+    BC => Model % BCs(i) % Values
+    IF( ListGetLogical( BC,"Port Ground", Found ) ) THEN
+      CALL ListAddConstReal( BC,'Eport re',0.0_dp)
+      CALL ListAddConstReal( BC,'Eport im',0.0_dp)
+      CALL ListAddConstReal( BC,'Eport re {e}',0.0_dp)
+      CALL ListAddConstReal( BC,'Eport im {e}',0.0_dp)
+    END IF
+  END DO
+
+  
   CALL ListAddNewString(Params, 'Variable', 'Eport[Eport re:1 Eport im:1]')
   CALL ListAddLogical(Params, 'Linear System refactorize', .TRUE.)
 
