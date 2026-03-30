@@ -40,39 +40,18 @@
 !> is used and to solve the additional scalar potential V the Gauss law is used.
 !> \ingroup Solvers
 !-------------------------------------------------------------------------------
-MODULE VectorHelmholtzUtils
-
-   USE DefUtils
-   IMPLICIT NONE
-
-   COMPLEX(KIND=dp), PARAMETER :: im = (0._dp,1._dp)   
-  
-CONTAINS
-
-!------------------------------------------------------------------------------
-  FUNCTION ComplexCrossProduct(v1,v2) RESULT(v3)
-!------------------------------------------------------------------------------
-    COMPLEX(KIND=dp) :: v1(3), v2(3), v3(3)
-    v3(1) =  v1(2)*v2(3) - v1(3)*v2(2)
-    v3(2) = -v1(1)*v2(3) + v1(3)*v2(1)
-    v3(3) =  v1(1)*v2(2) - v1(2)*v2(1)
-!------------------------------------------------------------------------------
-  END FUNCTION ComplexCrossProduct
-
-END MODULE VectorHelmholtzUtils
 
 
 !> \ingroup Solvers
 !------------------------------------------------------------------------------
 SUBROUTINE VectorHelmholtzSolver_Init0(Model,Solver,dt,Transient)
 !------------------------------------------------------------------------------
-  USE VectorHelmholtzUtils
+  USE DefUtils
 
   IMPLICIT NONE
 !------------------------------------------------------------------------------
   TYPE(Solver_t) :: Solver
   TYPE(Model_t) :: Model
-
   REAL(KIND=dp) :: dt
   LOGICAL :: Transient
 !------------------------------------------------------------------------------
@@ -185,13 +164,12 @@ END SUBROUTINE VectorHelmholtzSolver_Init0
 !------------------------------------------------------------------------------
 SUBROUTINE VectorHelmholtzSolver_Init(Model,Solver,dt,Transient)
 !------------------------------------------------------------------------------
-  USE VectorHelmholtzUtils
+  USE DefUtils
 
   IMPLICIT NONE
 !------------------------------------------------------------------------------
   TYPE(Model_t) :: Model
   TYPE(Solver_t) :: Solver
-
   REAL(KIND=dp) :: dt
   LOGICAL :: Transient
 !------------------------------------------------------------------------------
@@ -211,7 +189,7 @@ SUBROUTINE VectorHelmholtzSolver_Init(Model,Solver,dt,Transient)
   !
   ! The following is for creating sources from pre-computed eigenfunctions:
   !
-  FindEigen = (ListGetLogicalAnyBC(Model, 'Eigenfunction BC'))
+  FindEigen = .FALSE.
   DO i=1,Model % NumberOfBCs
     IF( ListGetString( Model % BCs(i) % Values,'Port Type', Found ) == 'eigenmode' ) THEN
       FindEigen = .TRUE.
@@ -251,6 +229,7 @@ END SUBROUTINE VectorHelmholtzSolver_Init
 !------------------------------------------------------------------------------
 SUBROUTINE VectorHelmholtzSolver( Model,Solver,dt,Transient )
 !------------------------------------------------------------------------------
+  USE DefUtils
   USE VectorHelmholtzUtils
 
   IMPLICIT NONE
@@ -262,7 +241,6 @@ SUBROUTINE VectorHelmholtzSolver( Model,Solver,dt,Transient )
 !------------------------------------------------------------------------------
 ! Local variables
 !------------------------------------------------------------------------------
-  TYPE(Solver_t), POINTER :: Eigensolver => NULL()
   LOGICAL :: Found, PrecMatrix, HasPrecDampCoeff, MassProportional, CurlCurlPrec
   REAL(KIND=dp) :: Omega, mu0inv, eps0, rob0
   INTEGER :: i, soln, NoIterationsMax, EdgeBasisDegree
@@ -270,7 +248,6 @@ SUBROUTINE VectorHelmholtzSolver( Model,Solver,dt,Transient )
   COMPLEX(KIND=dp) :: PrecDampCoeff
   LOGICAL :: PiolaVersion, EdgeBasis, LowFrequencyModel, LorenzCondition
   LOGICAL :: UseGaussLaw, ChargeConservation
-  LOGICAL :: EigenfunctionSource
   LOGICAL :: EigenProblem
   TYPE(ValueList_t), POINTER :: SolverParams
   TYPE(Solver_t), POINTER :: pSolver
@@ -351,12 +328,6 @@ SUBROUTINE VectorHelmholtzSolver( Model,Solver,dt,Transient )
   UseGaussLaw = GetLogical(SolverParams, 'Use Gauss Law', Found)
   ChargeConservation = GetLogical(SolverParams, 'Apply Conservation of Charge', Found)
 
-  ! If we have eigenfunction BC's then this has been set.
-  soln = ListGetInteger(SolverParams, 'Eigensolver Index', Found)     
-  EigenfunctionSource = (soln > 0)
-  IF(soln > 0) Eigensolver => Model % Solvers(soln)
-  
-  
   ! Resolve internal nonlinearities, if requested:
   ! ----------------------------------------------
   NoIterationsMax = GetInteger( SolverParams, &
@@ -642,7 +613,7 @@ CONTAINS
     ndofs = MAXVAL(Solver % Def_Dofs(GetElementFamily(Element),:,1))
     np = n * ndofs
 
-    WithNDOFs = ndofs > 0
+    WithNDOFs = ( ndofs > 0 )
     IF (WithNDOFs) THEN
       Gauge(1:nd,1:nd)  = 0.0_dp
     END IF
@@ -887,9 +858,8 @@ CONTAINS
     COMPLEX(KIND=dp) :: ElSurfCurr(3), B, L(3), muinv, TemGrad(3), MagLoad(3), BetaPar, &
         PortBeta, jn, Cond, SurfImp, epsr, mur, ep
     REAL(KIND=dp), ALLOCATABLE :: Basis(:),dBasisdx(:,:),WBasis(:,:),RotWBasis(:,:)
-    REAL(KIND=dp), ALLOCATABLE :: Re_Eigenf(:), Im_Eigenf(:)
     REAL(KIND=dp) :: th, DetJ
-    LOGICAL :: Stat, Found, UpdateStiff, WithNdofs, ThinSheet, GoodConductor, Absorb, EigenSource, EigenWave
+    LOGICAL :: Stat, Found, UpdateStiff, WithNdofs, ThinSheet, GoodConductor, Absorb
     LOGICAL :: LineElement, DegenerateElement, Regularize, Consistent
     LOGICAL :: AllocationsDone = .FALSE.
     TYPE(GaussIntegrationPoints_t) :: IP
@@ -898,10 +868,8 @@ CONTAINS
     TYPE(Nodes_t), SAVE :: Nodes
     TYPE(Element_t), POINTER :: Parent
     TYPE(ValueHandle_t), SAVE :: ElSurfCurr_h, MagLoad_h, ElRobin_h, MuCoeff_h, EpsCoeff_h, Absorb_h, TemRe_h, TemIm_h, ExtPot_h
-    TYPE(ValueHandle_t), SAVE :: TransferCoeff_h, ElCurrent_h
-    TYPE(ValueHandle_t), SAVE :: Thickness_h, RelNu_h, CondCoeff_h
-    TYPE(ValueHandle_t), SAVE :: GoodConductor_h, ChargeConservation_h, EigenSource_h, EigenInd_h, EigenWave_h
-
+    TYPE(ValueHandle_t), SAVE :: TransferCoeff_h, ElCurrent_h, Thickness_h, RelNu_h, CondCoeff_h
+    TYPE(ValueHandle_t), SAVE :: GoodConductor_h, ChargeConservation_h, EigenInd_h
     TYPE(ValueHandle_t), SAVE :: PortTypeIndex_h, PortZ_h, PortLength_h, PortScale_h, PortDirection_h, &
         PortCenter_h, PortBeta_h, PortPassive_h
     INTEGER :: PortTypeIndex, PortDirection
@@ -910,15 +878,12 @@ CONTAINS
     LOGICAL :: GotPort, PortPassive
 
     
-    SAVE AllocationsDone, WBasis, RotWBasis, Basis, dBasisdx, FORCE, STIFF, MASS, Re_Eigenf, Im_Eigenf
+    SAVE AllocationsDone, WBasis, RotWBasis, Basis, dBasisdx, FORCE, STIFF, MASS
 
     IF(.NOT. AllocationsDone ) THEN
       m = Mesh % MaxElementDOFs
       ALLOCATE( WBasis(m,3), RotWBasis(m,3), Basis(m), dBasisdx(m,3),&
           FORCE(m),STIFF(m,m),MASS(m,m))      
-      IF (EigenfunctionSource) THEN
-        ALLOCATE(Re_Eigenf(m), Im_Eigenf(m))
-      END IF
       AllocationsDone = .TRUE.
     END IF
 
@@ -945,12 +910,12 @@ CONTAINS
       CALL ListInitElementKeyword( RelNu_h,'Boundary Condition','Layer Relative Reluctivity',InitIm=.TRUE.)
       CALL ListInitElementKeyword( CondCoeff_h,'Boundary Condition','Layer Electric Conductivity',InitIm=.TRUE.)
 
-      ! Paramaters related to eigenmode port.
-      CALL ListInitElementKeyword( EigenSource_h,'Boundary Condition','Eigenfunction BC')
       CALL ListInitElementKeyword( EigenInd_h,'Boundary Condition','Eigenfunction Index')
-      CALL ListInitElementKeyword( EigenWave_h,'Boundary Condition','Incident Wave')      
-
+      
       ! Lumped ports
+#if 1
+      CALL ElectricPortModel(1,Solver)
+#else
       CALL ListInitElementKeyword( PortTypeIndex_h,'Boundary Condition','Port Type Index')
       CALL ListInitElementKeyword( PortZ_h,'Boundary Condition','Port Impedance',InitIm=.TRUE.)
       CALL ListInitElementKeyword( PortLength_h,'Boundary Condition','Port Length')
@@ -959,7 +924,7 @@ CONTAINS
       CALL ListInitElementKeyword( PortCenter_h,'Boundary Condition','Port Center',InitVec3D=.TRUE.)
       CALL ListInitElementKeyword( PortBeta_h,'Boundary Condition','Port Beta',InitIm=.TRUE.) 
       CALL ListInitElementKeyword( PortPassive_h,'Boundary Condition','Port Passive')
-      
+#endif 
       InitHandles = .FALSE.
     END IF
 
@@ -976,14 +941,16 @@ CONTAINS
     np = n * ndofs
     
     ! Check whether BC should be created in terms of pre-computed eigenfunction:
-    EigenSource = ListGetElementLogical(EigenSource_h, Element, Found)
     GoodConductor = ListGetElementLogical(GoodConductor_h, Element, Found)
     Absorb = ListGetElementLogical(Absorb_h, Element, Found)
+    
+    CALL ElectricPortModel(2,Solver,Element,GotPort)
+
+#if 0
     PortTypeIndex = ListGetElementInteger(PortTypeIndex_h, Element, GotPort)
     
-    IF (EigenSource .OR. PortTypeIndex == 3 ) THEN
+    IF (PortTypeIndex == 3 ) THEN
       EigenInd = MAX(1,ListGetElementInteger(EigenInd_h, Element, Found))
-      EigenWave = ListGetElementLogical(EigenWave_h, Element, Found)
 
       CALL GetScalarLocalEigenmode(Re_eigenf, UElement = Element, &
           USolver = EigenSolver, NoEigen = EigenInd, ComplexPart=.FALSE.)
@@ -999,8 +966,11 @@ CONTAINS
       IF (.NOT. Consistent) CALL Fatal(Caller, &
           'The DOFs of the port model are not compatible with the DOFs of this solver')
     END IF
-
+#endif
+    
     IF(GotPort) THEN
+#if 1
+#else
       PortTypeIndex = ListGetElementInteger( PortTypeIndex_h, Element ) 
       PortZ = ListGetElementComplex( PortZ_h, Element = Element )     
       PortScale = ListGetElementReal( PortScale_h, Element = Element )
@@ -1016,6 +986,7 @@ CONTAINS
       ELSE
         CALL Fatal(Caller,'Uncoded port type: '//I2S(PortTypeIndex))        
       END IF
+#endif
     END IF
       
     
@@ -1088,7 +1059,7 @@ CONTAINS
       muinv = mur * mu0inv
 
       
-      IF( COUNT([EigenSource,GoodConductor,ThinSheet,Absorb,GotPort]) > 1) THEN
+      IF( COUNT([GoodConductor,ThinSheet,Absorb,GotPort]) > 1) THEN
         CALL Fatal(Caller,'Boundary condition not uniquely defined!')
       END IF
       
@@ -1097,8 +1068,7 @@ CONTAINS
         B = im * rob0 * SQRT( epsr / mur ) 
       ELSE IF (ThinSheet) THEN
         Cond = ListGetElementComplex(CondCoeff_h, Basis, Element, Found, GaussPoint = t)
-        B = th * Cond
-        B = im * omega/muinv * B
+        B = im * (omega/muinv) * th * Cond
       ELSE IF(GoodConductor) THEN
         Cond = ListGetElementComplex(CondCoeff_h, Basis, Element, Found, GaussPoint = t)
         muinv = ListGetElementComplex(RelNu_h, Basis, Element, Found, GaussPoint = t)
@@ -1108,17 +1078,11 @@ CONTAINS
           muinv = mu0inv
         END IF
         SurfImp = CMPLX(1.0_dp, -1.0_dp, KIND=dp) * SQRT(omega/(2.0_dp * Cond * muinv))
-        B = 1.0_dp/SurfImp
-        B = im * omega/muinv * B
-      ELSE IF(EigenSource) THEN
-        B = im * SQRT(-Eigensolver % Variable % Eigenvalues(EigenInd))
-        IF (EigenWave) THEN
-          DO p=1,nd
-            L(:) = L(:) + CMPLX(Re_Eigenf(n+p) * WBasis(p,:), Im_Eigenf(n+p) * WBasis(p,:), kind=dp) 
-          END DO
-          L = 2.0_dp * B * L
-        END IF
+        B = im * (omega/muinv) / SurfImp
       ELSE IF(GotPort) THEN
+#if 1
+        CALL ElectricPortModel(3,Solver,Element,GotPort,WBasis,L,B)
+#else
         IF( PortTypeIndex == 1 ) THEN
           B = im * ( omega / mu0inv ) / (PortScale * PortZ ) 
           L(ABS(PortDirection)) = SIGN(1,PortDirection) / ( PortLength * SQRT(PortScale) )
@@ -1130,6 +1094,7 @@ CONTAINS
         END IF
         L = 2.0_dp * B * L 
         IF( PortPassive) L = 0.0_dp
+#endif
       ELSE
         B = ListGetElementComplex( ElRobin_h, Basis, Element, Found, GaussPoint = t )
 
@@ -1240,7 +1205,7 @@ CONTAINS
 !------------------------------------------------------------------------------
 SUBROUTINE VectorHelmholtz_Dummy(Model,Solver,dt,Transient)
 !------------------------------------------------------------------------------
-  USE VectorHelmholtzUtils
+  USE DefUtils
 
   IMPLICIT NONE
 !------------------------------------------------------------------------------
@@ -1260,7 +1225,8 @@ END SUBROUTINE VectorHelmholtz_Dummy
 !------------------------------------------------------------------------------
 SUBROUTINE VectorHelmholtzCalcFields_Init0(Model,Solver,dt,Transient)
 !------------------------------------------------------------------------------
-  USE VectorHelmholtzUtils
+  USE DefUtils
+!  USE VectorHelmholtzUtils
 
   IMPLICIT NONE
 !------------------------------------------------------------------------------
@@ -1406,8 +1372,7 @@ END SUBROUTINE VectorHelmholtzCalcFields_Init0
 !------------------------------------------------------------------------------
 SUBROUTINE VectorHelmholtzCalcFields_Init(Model,Solver,dt,Transient)
 !------------------------------------------------------------------------------
-  USE VectorHelmholtzUtils
-
+  USE DefUtils 
   IMPLICIT NONE
 !------------------------------------------------------------------------------
   TYPE(Solver_t) :: Solver
@@ -1490,8 +1455,9 @@ END SUBROUTINE VectorHelmholtzCalcFields_Init
 !------------------------------------------------------------------------------
  SUBROUTINE VectorHelmholtzCalcFields(Model,Solver,dt,Transient)
 !------------------------------------------------------------------------------
+   USE DefUtils
    USE VectorHelmholtzUtils
-
+   
    IMPLICIT NONE
 !------------------------------------------------------------------------------
    TYPE(Solver_t) :: Solver

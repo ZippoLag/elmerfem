@@ -52,7 +52,8 @@ MODULE SolverUtils
    USE LoadMod
    USE Multigrid
    USE ElementUtils
-   USE LumpingUtils
+   USE LumpingUtils, ONLY : ComponentStokesTheorem, ComponentCoilEnergy, BoundaryWaveFlux, &
+       UpdateDependentComponents, ComponentNodalForceReduction
    USE TimeIntegrate
    USE ModelDescription
    USE MeshUtils, ONLY : CommunicateParallelSystemTag, CylinderFit, &

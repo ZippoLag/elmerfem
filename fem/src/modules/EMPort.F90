@@ -81,6 +81,8 @@ SUBROUTINE EMPortSolver_Init0(Model, Solver, dt, Transient)
     IF (SecondOrder) THEN
       CALL ListAddString(Params, "Element", &
           "n:1 e:2 -tri b:2 -quad b:4 -brick b:6 -pyramid b:3 -prism b:2 -quad_face b:4 -tri_face b:2")
+    ELSE IF( SecondFamily ) THEN
+      CALL ListAddString(Params, "Element", "n:1 e:2" )
     ELSE IF (PiolaVersion) THEN
       CALL ListAddString(Params, "Element", "n:1 e:1 -quad_face b:2 -quad b:2 -brick b:3")
     ELSE
