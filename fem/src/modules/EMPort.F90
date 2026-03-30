@@ -259,7 +259,8 @@ SUBROUTINE EMPortSolver(Model, Solver, dt, Transient)
       n  = GetElementNOFNodes(Element)
       nd = GetElementNOFDOFs(Element)
       
-      IF (EdgeBasisDegree > 1) THEN
+!      IF (EdgeBasisDegree > 1) THEN
+      IF (.FALSE.) THEN
         SELECT CASE(EFamily)    
         CASE(3)
           IF (n < 6) CALL Fatal(Caller, 'A background mesh needs 6-node triangles')
